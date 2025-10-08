@@ -233,5 +233,35 @@ router.get("/contact/:id", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Failed to fetch contact info" });
   }
 });
+router.put("/:id", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  const { name, type, location, description, image } = req.body;
+
+  try {
+    // Find post by ID
+    const item = await Item.findById(id);
+
+    if (!item) return res.status(404).json({ message: "Post not found" });
+
+    // Optional: check if the logged-in user owns this post
+    if (item.user.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    // Update fields
+    item.name = name || item.name;
+    item.type = type || item.type;
+    item.location = location || item.location;
+    item.description = description || item.description;
+    item.image = image || item.image;
+
+    const updatedItem = await item.save();
+    res.json(updatedItem);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 
 export default router;
