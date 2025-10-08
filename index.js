@@ -78,7 +78,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/items", itemRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/comments", commentRoutes);
-
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // Root route
 app.get("/", (req, res) => res.send("Lost & Found Backend Running"));
 
