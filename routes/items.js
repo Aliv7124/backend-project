@@ -10,9 +10,9 @@ const router = express.Router();
 
 // ✅ Cloudinary config (use env vars for deployment)
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "dvcl4us6x",
-  api_key: process.env.CLOUDINARY_API_KEY || "982818485858234",
-  api_secret: process.env.CLOUDINARY_API_SECRET || "UrngGc6173QPRn_NDg4O1elpXpY",
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 // ✅ Setup multer for temporary file upload
