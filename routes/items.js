@@ -11,7 +11,7 @@ const router = express.Router();
 dotenv.config();
 
 router.post('/ai/description', async (req, res) => {
-  const {name} = req.body;
+  const { name, location } = req.body;
   if (!name) return res.status(400).json({ message: 'Item name is required' });
 
   try {
@@ -19,14 +19,19 @@ router.post('/ai/description', async (req, res) => {
       'https://api.sambanova.ai/v1/chat/completions',
       {
         model: 'Llama-4-Maverick-17B-128E-Instruct',
-      messages: [
-      { role: 'user', content: 
-        `Write a short, detailed description for a lost-and-found item. The item type is "Found" and its name is "${itemName}". Include where it might be found and its appearance.` 
-      }
-    ],
-    temperature: 0.7,
-    top_p: 0.9,
-  },
+        messages: [
+          {
+            role: 'user',
+            content: `Generate 5 short, unique descriptions for a FOUND item.
+                      Name: ${name}
+                      Location: ${location || "unknown"}
+                      Include appearance and where it might be found.`
+          }
+        ],
+        temperature: 0.7,
+        top_p: 0.9,
+        n: 5
+      },
       {
         headers: {
           Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
@@ -35,13 +40,14 @@ router.post('/ai/description', async (req, res) => {
       }
     );
 
-    const description = response.data.choices[0]?.message?.content.trim() || `No description generated for ${itemName}`;
-    res.json({ description });
+    const descriptions = response.data.choices.map(c => c.message.content.trim());
+    res.json({ descriptions });
   } catch (err) {
     console.error('SambaNova API error:', err.response?.data || err.message);
     res.status(500).json({ message: 'Failed to generate description' });
   }
 });
+
 
 // ✅ Cloudinary config (use env vars for deployment)
 cloudinary.config({
