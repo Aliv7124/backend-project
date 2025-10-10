@@ -19,10 +19,14 @@ router.post('/ai/description', async (req, res) => {
       'https://api.sambanova.ai/v1/chat/completions',
       {
         model: 'Llama-4-Maverick-17B-128E-Instruct',
-        messages: [{ role: 'user', content: `Write a short, catchy description for this item: ${name}` }],
-        temperature: 0.7,
-        top_p: 0.9,
-      },
+      messages: [
+      { role: 'user', content: 
+        `Write a short, detailed description for a lost-and-found item. The item type is "Found" and its name is "${itemName}". Include where it might be found and its appearance.` 
+      }
+    ],
+    temperature: 0.7,
+    top_p: 0.9,
+  },
       {
         headers: {
           Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
