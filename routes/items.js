@@ -5,8 +5,39 @@ import fs from "fs";
 import { v2 as cloudinary } from "cloudinary";
 import Item from "../models/Item.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
-
+import dotenv from "dotenv";
+import axios from "axios";
 const router = express.Router();
+dotenv.config();
+
+router.post('/ai/description', async (req, res) => {
+  const {name} = req.body;
+  if (!name) return res.status(400).json({ message: 'Item name is required' });
+
+  try {
+    const response = await axios.post(
+      'https://api.sambanova.ai/v1/chat/completions',
+      {
+        model: 'Llama-4-Maverick-17B-128E-Instruct',
+        messages: [{ role: 'user', content: `Write a short, catchy description for this item: ${name}` }],
+        temperature: 0.7,
+        top_p: 0.9,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const description = response.data.choices[0]?.message?.content.trim() || `No description generated for ${itemName}`;
+    res.json({ description });
+  } catch (err) {
+    console.error('SambaNova API error:', err.response?.data || err.message);
+    res.status(500).json({ message: 'Failed to generate description' });
+  }
+});
 
 // ✅ Cloudinary config (use env vars for deployment)
 cloudinary.config({

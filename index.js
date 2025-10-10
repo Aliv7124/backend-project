@@ -11,6 +11,7 @@ import authRoutes from "./routes/auth.js";      // user auth
 import itemRoutes from "./routes/items.js";     // items CRUD
 import adminRoutes from "./routes/admin.js";    // admin auth & management
 import commentRoutes from "./routes/commentRoutes.js";
+
 dotenv.config();
 const app = express();
 
