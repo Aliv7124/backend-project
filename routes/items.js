@@ -11,7 +11,7 @@ const router = express.Router();
 dotenv.config();
 
 router.post('/ai/description', async (req, res) => {
-  const { name, location } = req.body;
+  const { name } = req.body;
   if (!name) return res.status(400).json({ message: 'Item name is required' });
 
   try {
@@ -24,7 +24,7 @@ router.post('/ai/description', async (req, res) => {
             role: 'user',
             content: `Generate 5 short, unique descriptions for a FOUND item.
                       Name: ${name}
-                      Location: ${location || "unknown"}
+                      
                       Include appearance and where it might be found.`
           }
         ],
