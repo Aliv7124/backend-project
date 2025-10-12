@@ -261,7 +261,8 @@ const upload = multer({ dest: "uploads/" });
 router.post("/", verifyToken, upload.single("image"), async (req, res) => {
   try {
     const { name, location, description, type, date, phone } = req.body;
-    if (!name || !location || !type) return res.status(400).json({ message: "Name, location, and type are required." });
+    if (!name || !location || !type) 
+      return res.status(400).json({ message: "Name, location, and type are required." });
 
     let imageUrl = null;
     if (req.file) {
@@ -286,12 +287,26 @@ router.post("/", verifyToken, upload.single("image"), async (req, res) => {
 
     const savedItem = await newItem.save();
 
-    // 🔔 Emit live notification via Socket.IO
+    // 🔔 Emit live notification to all other connected clients
     const io = req.app.get("io");
-    io.emit("newPost", {
-      message: `🆕 ${req.user.name || "Someone"} posted a ${type} item: ${name}`,
-      post: savedItem,
-    });
+    const socketId = req.headers["socket-id"]; // sender socket id
+    if (socketId) {
+      // Broadcast to others except sender
+      io.sockets.sockets.forEach((s) => {
+        if (s.id !== socketId) {
+          s.emit("newPost", {
+            message: `🆕 ${req.user.name || "Someone"} posted a ${type} item: ${name}`,
+            post: savedItem,
+          });
+        }
+      });
+    } else {
+      // fallback: send to all
+      io.emit("newPost", {
+        message: `🆕 ${req.user.name || "Someone"} posted a ${type} item: ${name}`,
+        post: savedItem,
+      });
+    }
 
     res.status(201).json(savedItem);
   } catch (err) {
@@ -336,7 +351,8 @@ router.delete("/:id", verifyToken, async (req, res) => {
   try {
     const item = await Item.findById(req.params.id);
     if (!item) return res.status(404).json({ message: "Item not found" });
-    if (item.user.toString() !== req.user.id) return res.status(403).json({ message: "Unauthorized" });
+    if (item.user.toString() !== req.user.id) 
+      return res.status(403).json({ message: "Unauthorized" });
 
     await item.deleteOne();
     res.json({ message: "Item deleted successfully" });
@@ -366,7 +382,8 @@ router.put("/:id", verifyToken, async (req, res) => {
   try {
     const item = await Item.findById(id);
     if (!item) return res.status(404).json({ message: "Post not found" });
-    if (item.user.toString() !== req.user.id) return res.status(403).json({ message: "Unauthorized" });
+    if (item.user.toString() !== req.user.id) 
+      return res.status(403).json({ message: "Unauthorized" });
 
     item.name = name || item.name;
     item.type = type || item.type;
@@ -383,3 +400,4 @@ router.put("/:id", verifyToken, async (req, res) => {
 });
 
 export default router;
+
