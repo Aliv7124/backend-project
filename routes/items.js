@@ -303,7 +303,7 @@ router.put("/:id", verifyToken, async (req, res) => {
 export default router;
 */
 
-
+/*
 import express from "express";
 import multer from "multer";
 import fs from "fs";
@@ -491,5 +491,235 @@ router.put("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Update failed" });
   }
 });
+
+export default router;
+
+*/
+
+
+import express from "express";
+import multer from "multer";
+import fs from "fs";
+import { v2 as cloudinary } from "cloudinary";
+import Item from "../models/Item.js";
+import { verifyToken } from "../middleware/authMiddleware.js";
+import { verifyImageAndCaption } from "../middleware/aiController.js";
+import { validateContent } from "../middleware/safetyMiddleware.js"; 
+import fetch from "node-fetch";
+import axios from "axios";
+import dotenv from "dotenv";
+
+const router = express.Router();
+dotenv.config();
+
+// --- CLOUDINARY CONFIG ---
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const upload = multer({ dest: "uploads/" });
+
+// --- AI CHAT ---
+router.post("/ai/chat", async (req, res) => {
+  const { message } = req.body;
+
+  try {
+    const response = await axios.post(
+      "https://api.sambanova.ai/v1/chat/completions",
+      {
+        model: "Meta-Llama-3.3-70B-Instruct",
+        messages: [
+          { role: "system", content: "You are a Lost & Found assistant. Give short, helpful replies." },
+          { role: "user", content: message },
+        ],
+        max_tokens: 200,
+        temperature: 0.7,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+        },
+      }
+    );
+
+    res.json({ reply: response.data.choices[0].message.content });
+
+  } catch (error) {
+    res.status(500).json({ error: "Chatbot error" });
+  }
+});
+
+// --- AI DESCRIPTION ---
+router.post("/ai/lost-description", async (req, res) => {
+  const { name, location } = req.body;
+
+  try {
+    if (!name || !location) {
+      return res.status(400).json({ message: "Name and location required" });
+    }
+
+    const response = await fetch("https://api.sambanova.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "Meta-Llama-3.1-8B-Instruct",
+        messages: [
+          { role: "system", content: "Write clear and meaningful lost item descriptions." },
+          { role: "user", content: `Write a realistic description for a lost item: ${name} near ${location}. Include details.` },
+        ],
+        max_tokens: 200,
+      }),
+    });
+
+    const data = await response.json();
+    res.json({ description: data.choices[0].message.content });
+
+  } catch (error) {
+    res.status(500).json({ message: "Failed to generate description" });
+  }
+});
+
+// --- CREATE ITEM (STRICT SECURITY) ---
+router.post("/", verifyToken, upload.single("image"), validateContent, async (req, res) => {
+  try {
+    const { name, location, description, type, date, phone } = req.body;
+
+    if (!name || !location || !type) {
+      cleanup(req);
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // 🔍 AI VERIFICATION
+    let aiStatus = { isVerified: true, reason: "No image provided" };
+
+    if (req.file) {
+      aiStatus = await verifyImageAndCaption(
+        req.file.path,
+        req.file.mimetype,
+        name,
+        description
+      );
+
+      if (!aiStatus.isVerified) {
+        cleanup(req);
+        return res.status(400).json({
+          message: "Fake Post Detected",
+          reason: aiStatus.reason,
+        });
+      }
+    }
+
+    // ☁️ CLOUDINARY UPLOAD
+    let imageUrl = null;
+
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "lost_found_items",
+        resource_type: "auto",
+      });
+
+      imageUrl = result.secure_url;
+      cleanup(req);
+    }
+
+    // 💾 SAVE DB
+    const newItem = new Item({
+      name,
+      location,
+      description,
+      type,
+      date: date || new Date().toISOString(),
+      user: req.user.id,
+      phone: phone || null,
+      image: imageUrl,
+      isAiVerified: aiStatus.isVerified,
+    });
+
+    const savedItem = await newItem.save();
+    res.status(201).json(savedItem);
+
+  } catch (err) {
+    cleanup(req);
+    res.status(500).json({ message: "Error creating post" });
+  }
+});
+
+// --- GET ALL ---
+router.get("/all", async (req, res) => {
+  try {
+    const items = await Item.find()
+      .populate("user", "name")
+      .sort({ createdAt: -1 });
+
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// --- GET USER ITEMS ---
+router.get("/", verifyToken, async (req, res) => {
+  try {
+    const items = await Item.find({ user: req.user.id })
+      .sort({ createdAt: -1 });
+
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// --- DELETE ---
+router.delete("/:id", verifyToken, async (req, res) => {
+  try {
+    const item = await Item.findById(req.params.id);
+
+    if (!item) return res.status(404).json({ message: "Not found" });
+    if (item.user.toString() !== req.user.id)
+      return res.status(403).json({ message: "Unauthorized" });
+
+    await item.deleteOne();
+    res.json({ message: "Deleted successfully" });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// --- UPDATE ---
+router.put("/:id", verifyToken, async (req, res) => {
+  try {
+    const item = await Item.findById(req.params.id);
+
+    if (!item) return res.status(404).json({ message: "Not found" });
+    if (item.user.toString() !== req.user.id)
+      return res.status(403).json({ message: "Unauthorized" });
+
+    Object.assign(item, req.body);
+    const updatedItem = await item.save();
+
+    res.json(updatedItem);
+
+  } catch (err) {
+    res.status(500).json({ message: "Update failed" });
+  }
+});
+
+// 🔥 FILE CLEANUP HELPER
+function cleanup(req) {
+  try {
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+  } catch (err) {
+    console.error("Cleanup error:", err.message);
+  }
+}
 
 export default router;
