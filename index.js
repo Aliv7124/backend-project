@@ -21,7 +21,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 
-app.use(cors());
+app.use(cors({
+  origin: "https://project-omega-ruddy.vercel.app",
+  credentials: true
+}));
+
+app.use(express.json());
 app.use(express.json());
 
 
