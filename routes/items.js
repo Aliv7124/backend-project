@@ -511,6 +511,7 @@ import axios from "axios";
 const router = express.Router();
 dotenv.config();
 
+// ---------------- AI CHAT ----------------
 router.post("/ai/chat", async (req, res) => {
   const { message } = req.body;
   try {
@@ -522,87 +523,89 @@ router.post("/ai/chat", async (req, res) => {
           {
             role: "system",
             content:
-              "You are an assistant for a Lost and Found web application. Always give short, helpful responses related to lost or found items.",
+              "You are an assistant for a Lost and Found web application.",
           },
           { role: "user", content: message },
         ],
-        max_tokens: 200,
-        temperature: 0.7,
       },
       {
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
         },
       }
     );
+
     res.json({ reply: response.data.choices[0].message.content });
   } catch (error) {
-    console.error(error.message);
     res.status(500).json({ error: "Chatbot error" });
   }
 });
 
+// ---------------- AI LOST DESCRIPTION ----------------
 router.post("/ai/lost-description", async (req, res) => {
   const { name, location } = req.body;
 
   try {
-    if (!name) return res.status(400).json({ message: "Item name is required" });
-    if (!location) return res.status(400).json({ message: "Location is required" });
-
-    const response = await fetch("https://api.sambanova.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "Meta-Llama-3.1-8B-Instruct",
-        messages: [
-          { role: "system", content: "Write lost item descriptions." },
-          { role: "user", content: `Lost item ${name} at ${location}` },
-        ],
-      }),
-    });
+    const response = await fetch(
+      "https://api.sambanova.ai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "Meta-Llama-3.1-8B-Instruct",
+          messages: [
+            {
+              role: "user",
+              content: `Lost item: ${name} near ${location}`,
+            },
+          ],
+        }),
+      }
+    );
 
     const data = await response.json();
     res.json({ description: data.choices[0].message.content });
-  } catch (error) {
-    res.status(500).json({ message: "Failed to generate description" });
+  } catch {
+    res.status(500).json({ message: "Failed" });
   }
 });
 
+// ---------------- AI FOUND DESCRIPTION ----------------
 router.post("/ai/description", async (req, res) => {
   const { name, location } = req.body;
 
   try {
-    if (!name || !location) {
-      return res.status(400).json({ message: "Name and location required" });
-    }
-
-    const response = await fetch("https://api.sambanova.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "Meta-Llama-3.1-8B-Instruct",
-        messages: [
-          { role: "system", content: "Write found item descriptions." },
-          { role: "user", content: `Found item ${name} at ${location}` },
-        ],
-      }),
-    });
+    const response = await fetch(
+      "https://api.sambanova.ai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "Meta-Llama-3.1-8B-Instruct",
+          messages: [
+            {
+              role: "user",
+              content: `Found item: ${name} at ${location}`,
+            },
+          ],
+        }),
+      }
+    );
 
     const data = await response.json();
     res.json({ description: data.choices[0].message.content });
-  } catch (error) {
-    res.status(500).json({ message: "Failed to generate description" });
+  } catch {
+    res.status(500).json({ message: "Failed" });
   }
 });
 
-// Cloudinary
+// ---------------- CLOUDINARY ----------------
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -611,39 +614,43 @@ cloudinary.config({
 
 const upload = multer({ dest: "uploads/" });
 
-// ✅ CREATE ITEM (WITH FLASK ADDED)
+// ---------------- CREATE ITEM (WITH FLASK) ----------------
 router.post("/", verifyToken, upload.single("image"), async (req, res) => {
   try {
     const { name, location, description, type, date, phone } = req.body;
 
     if (!name || !location || !type) {
-      return res.status(400).json({ message: "Name, location, and type are required." });
+      return res.status(400).json({ message: "Required fields missing" });
     }
 
-    // 🔥 FLASK CHECK (ONLY ADDITION)
-    let flaskRes;
+    // 🔥 FLASK VALIDATION
     try {
-      flaskRes = await axios.post("http://localhost:5001/check-post", {
-        caption: description,
-        location: location,
-      });
+      const flaskRes = await axios.post(
+        "http://127.0.0.1:5001/check-post",
+        {
+          caption: description,
+          location: location,
+        }
+      );
 
       console.log("Flask:", flaskRes.data);
+
+      if (flaskRes.data.status === "fake") {
+        return res.status(400).json({
+          message: "Fake post detected",
+        });
+      }
     } catch (err) {
       console.error("Flask error:", err.message);
-      return res.status(500).json({ message: "Flask not running" });
-    }
-
-    if (flaskRes.data.status === "fake") {
-      return res.status(400).json({ message: "Fake post detected" });
+      return res.status(500).json({
+        message: "Flask server not running",
+      });
     }
 
     let imageUrl = null;
 
     if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "lost_found_items",
-      });
+      const result = await cloudinary.uploader.upload(req.file.path);
       imageUrl = result.secure_url;
       fs.unlinkSync(req.file.path);
     }
@@ -653,40 +660,50 @@ router.post("/", verifyToken, upload.single("image"), async (req, res) => {
       location,
       description,
       type,
-      date: date || new Date().toISOString(),
+      date: date || new Date(),
       user: req.user.id,
-      phone: phone || null,
+      phone,
       image: imageUrl,
     });
 
     const savedItem = await newItem.save();
-    res.status(201).json(savedItem);
-
+    res.json(savedItem);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// GET USER
+// ---------------- GET USER ITEMS ----------------
 router.get("/", verifyToken, async (req, res) => {
   const items = await Item.find({ user: req.user.id });
   res.json(items);
 });
 
-// GET ALL
+// ---------------- GET ALL ----------------
 router.get("/all", async (req, res) => {
-  const items = await Item.find().populate("user", "name");
+  const items = await Item.find();
   res.json(items);
 });
 
-// DELETE
+// ---------------- GET ONE ----------------
+router.get("/:id", async (req, res) => {
+  const item = await Item.findById(req.params.id);
+  res.json(item);
+});
+
+// ---------------- DELETE ----------------
 router.delete("/:id", verifyToken, async (req, res) => {
   const item = await Item.findById(req.params.id);
-  if (item.user.toString() !== req.user.id) {
-    return res.status(403).json({ message: "Unauthorized" });
-  }
   await item.deleteOne();
   res.json({ message: "Deleted" });
+});
+
+// ---------------- UPDATE ----------------
+router.put("/:id", verifyToken, async (req, res) => {
+  const item = await Item.findById(req.params.id);
+  Object.assign(item, req.body);
+  const updated = await item.save();
+  res.json(updated);
 });
 
 export default router;
