@@ -69,11 +69,7 @@ dotenv.config();
 const app = express();
 
 // ✅ CORS FIX
-app.use(cors({
-  origin: "https://project-omega-ruddy.vercel.app",
-  credentials: true
-}));
-
+app.use(cors());
 app.use(express.json());
 
 // routes

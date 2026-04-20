@@ -497,41 +497,33 @@ export default router;
 */
 
 
+
 import express from "express";
 import multer from "multer";
 import fs from "fs";
 import { v2 as cloudinary } from "cloudinary";
 import Item from "../models/Item.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
-import { verifyImageAndCaption } from "../middleware/aiController.js";
-import { validateContent } from "../middleware/safetyMiddleware.js"; 
 import fetch from "node-fetch";
-import axios from "axios";
 import dotenv from "dotenv";
+import axios from "axios";
 
 const router = express.Router();
 dotenv.config();
 
-// --- CLOUDINARY CONFIG ---
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-const upload = multer({ dest: "uploads/" });
-
-// --- AI CHAT ---
 router.post("/ai/chat", async (req, res) => {
   const { message } = req.body;
-
   try {
     const response = await axios.post(
       "https://api.sambanova.ai/v1/chat/completions",
       {
         model: "Meta-Llama-3.3-70B-Instruct",
         messages: [
-          { role: "system", content: "You are a Lost & Found assistant. Give short, helpful replies." },
+          {
+            role: "system",
+            content:
+              "You are an assistant for a Lost and Found web application. Always give short, helpful responses related to lost or found items.",
+          },
           { role: "user", content: message },
         ],
         max_tokens: 200,
@@ -540,20 +532,47 @@ router.post("/ai/chat", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`
         },
       }
     );
-
     res.json({ reply: response.data.choices[0].message.content });
-
   } catch (error) {
+    console.error(error.message);
     res.status(500).json({ error: "Chatbot error" });
   }
 });
 
-// --- AI DESCRIPTION ---
 router.post("/ai/lost-description", async (req, res) => {
+  const { name, location } = req.body;
+
+  try {
+    if (!name) return res.status(400).json({ message: "Item name is required" });
+    if (!location) return res.status(400).json({ message: "Location is required" });
+
+    const response = await fetch("https://api.sambanova.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "Meta-Llama-3.1-8B-Instruct",
+        messages: [
+          { role: "system", content: "Write lost item descriptions." },
+          { role: "user", content: `Lost item ${name} at ${location}` },
+        ],
+      }),
+    });
+
+    const data = await response.json();
+    res.json({ description: data.choices[0].message.content });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to generate description" });
+  }
+});
+
+router.post("/ai/description", async (req, res) => {
   const { name, location } = req.body;
 
   try {
@@ -570,65 +589,65 @@ router.post("/ai/lost-description", async (req, res) => {
       body: JSON.stringify({
         model: "Meta-Llama-3.1-8B-Instruct",
         messages: [
-          { role: "system", content: "Write clear and meaningful lost item descriptions." },
-          { role: "user", content: `Write a realistic description for a lost item: ${name} near ${location}. Include details.` },
+          { role: "system", content: "Write found item descriptions." },
+          { role: "user", content: `Found item ${name} at ${location}` },
         ],
-        max_tokens: 200,
       }),
     });
 
     const data = await response.json();
     res.json({ description: data.choices[0].message.content });
-
   } catch (error) {
     res.status(500).json({ message: "Failed to generate description" });
   }
 });
 
-// --- CREATE ITEM (STRICT SECURITY) ---
-router.post("/", verifyToken, upload.single("image"), validateContent, async (req, res) => {
+// Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const upload = multer({ dest: "uploads/" });
+
+// ✅ CREATE ITEM (WITH FLASK ADDED)
+router.post("/", verifyToken, upload.single("image"), async (req, res) => {
   try {
     const { name, location, description, type, date, phone } = req.body;
 
     if (!name || !location || !type) {
-      cleanup(req);
-      return res.status(400).json({ message: "Missing required fields" });
+      return res.status(400).json({ message: "Name, location, and type are required." });
     }
 
-    // 🔍 AI VERIFICATION
-    let aiStatus = { isVerified: true, reason: "No image provided" };
+    // 🔥 FLASK CHECK (ONLY ADDITION)
+    let flaskRes;
+    try {
+      flaskRes = await axios.post("http://localhost:5001/check-post", {
+        caption: description,
+        location: location,
+      });
 
-    if (req.file) {
-      aiStatus = await verifyImageAndCaption(
-        req.file.path,
-        req.file.mimetype,
-        name,
-        description
-      );
-
-      if (!aiStatus.isVerified) {
-        cleanup(req);
-        return res.status(400).json({
-          message: "Fake Post Detected",
-          reason: aiStatus.reason,
-        });
-      }
+      console.log("Flask:", flaskRes.data);
+    } catch (err) {
+      console.error("Flask error:", err.message);
+      return res.status(500).json({ message: "Flask not running" });
     }
 
-    // ☁️ CLOUDINARY UPLOAD
+    if (flaskRes.data.status === "fake") {
+      return res.status(400).json({ message: "Fake post detected" });
+    }
+
     let imageUrl = null;
 
     if (req.file) {
       const result = await cloudinary.uploader.upload(req.file.path, {
         folder: "lost_found_items",
-        resource_type: "auto",
       });
-
       imageUrl = result.secure_url;
-      cleanup(req);
+      fs.unlinkSync(req.file.path);
     }
 
-    // 💾 SAVE DB
     const newItem = new Item({
       name,
       location,
@@ -638,88 +657,36 @@ router.post("/", verifyToken, upload.single("image"), validateContent, async (re
       user: req.user.id,
       phone: phone || null,
       image: imageUrl,
-      isAiVerified: aiStatus.isVerified,
     });
 
     const savedItem = await newItem.save();
     res.status(201).json(savedItem);
 
   } catch (err) {
-    cleanup(req);
-    res.status(500).json({ message: "Error creating post" });
-  }
-});
-
-// --- GET ALL ---
-router.get("/all", async (req, res) => {
-  try {
-    const items = await Item.find()
-      .populate("user", "name")
-      .sort({ createdAt: -1 });
-
-    res.json(items);
-  } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// --- GET USER ITEMS ---
+// GET USER
 router.get("/", verifyToken, async (req, res) => {
-  try {
-    const items = await Item.find({ user: req.user.id })
-      .sort({ createdAt: -1 });
-
-    res.json(items);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+  const items = await Item.find({ user: req.user.id });
+  res.json(items);
 });
 
-// --- DELETE ---
+// GET ALL
+router.get("/all", async (req, res) => {
+  const items = await Item.find().populate("user", "name");
+  res.json(items);
+});
+
+// DELETE
 router.delete("/:id", verifyToken, async (req, res) => {
-  try {
-    const item = await Item.findById(req.params.id);
-
-    if (!item) return res.status(404).json({ message: "Not found" });
-    if (item.user.toString() !== req.user.id)
-      return res.status(403).json({ message: "Unauthorized" });
-
-    await item.deleteOne();
-    res.json({ message: "Deleted successfully" });
-
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  const item = await Item.findById(req.params.id);
+  if (item.user.toString() !== req.user.id) {
+    return res.status(403).json({ message: "Unauthorized" });
   }
+  await item.deleteOne();
+  res.json({ message: "Deleted" });
 });
-
-// --- UPDATE ---
-router.put("/:id", verifyToken, async (req, res) => {
-  try {
-    const item = await Item.findById(req.params.id);
-
-    if (!item) return res.status(404).json({ message: "Not found" });
-    if (item.user.toString() !== req.user.id)
-      return res.status(403).json({ message: "Unauthorized" });
-
-    Object.assign(item, req.body);
-    const updatedItem = await item.save();
-
-    res.json(updatedItem);
-
-  } catch (err) {
-    res.status(500).json({ message: "Update failed" });
-  }
-});
-
-// 🔥 FILE CLEANUP HELPER
-function cleanup(req) {
-  try {
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-  } catch (err) {
-    console.error("Cleanup error:", err.message);
-  }
-}
 
 export default router;
