@@ -1,29 +1,39 @@
-
 import express from "express";
 import multer from "multer";
 import fs from "fs";
 import { v2 as cloudinary } from "cloudinary";
 import Item from "../models/Item.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
-import fetch from "node-fetch";
 import dotenv from "dotenv";
 import axios from "axios";
 
-const router = express.Router();
 dotenv.config();
 
+const router = express.Router();
+
+
+// ================== AI CHAT ==================
 router.post("/ai/chat", async (req, res) => {
-  const { message } = req.body;
   try {
+    const { message } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+
+    if (!process.env.SAMBANOVA_API_KEY) {
+      return res.status(500).json({ error: "API key missing" });
+    }
+
     const response = await axios.post(
       "https://api.sambanova.ai/v1/chat/completions",
       {
-        model: "Meta-Llama-3.3-70B-Instruct",   // pick a model they support
-         messages: [
+        model: "Meta-Llama-3.3-70B-Instruct",
+        messages: [
           {
             role: "system",
             content:
-              "You are an assistant for a Lost and Found web application. Always give short, helpful responses related to lost or found items, reporting, recovery tips, or platform usage.",
+              "You are an assistant for a Lost and Found web application. Give short helpful answers related to lost or found items.",
           },
           { role: "user", content: message },
         ],
@@ -33,142 +43,125 @@ router.post("/ai/chat", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
         },
       }
     );
-    res.json({ reply: response.data.choices[0].message.content });
+
+    const reply =
+      response?.data?.choices?.[0]?.message?.content || "No response";
+
+    res.json({ reply });
   } catch (error) {
-    console.error("SambaNova chatbot error:", error.response?.data || error.message);
-    res.status(500).json({ error: "Chatbot error" });
+    console.error("CHAT ERROR:", error.response?.data || error.message);
+    res.status(500).json({
+      error: error.response?.data || error.message,
+    });
   }
 });
 
+
+// ================== LOST DESCRIPTION ==================
 router.post("/ai/lost-description", async (req, res) => {
-  const { name, location } = req.body;
-
   try {
-  
-    if (!name) {
-      return res.status(400).json({ message: "Item name is required" });
-    }
-    if (!location) {
-      return res.status(400).json({ message: "Location is required" });
+    const { name, location } = req.body;
+
+    if (!name || !location) {
+      return res.status(400).json({ message: "Name and location required" });
     }
 
-    
-    const response = await fetch("https://api.sambanova.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await axios.post(
+      "https://api.sambanova.ai/v1/chat/completions",
+      {
         model: "Meta-Llama-3.1-8B-Instruct",
         messages: [
           {
             role: "system",
-            content:
-              "You are a helpful assistant that writes clear, short lost and found descriptions for items.",
+            content: "Write short lost item descriptions",
           },
           {
             role: "user",
-            content: `Write a short, professional "Lost Item" description for: ${name}. The description should start with "Lost Item:" and clearly describe the item, mention that it was last seen at or near ${location}, and include a note requesting anyone who finds it to contact the owner.`,
+            content: `Lost Item: ${name}, last seen at ${location}`,
           },
         ],
         max_tokens: 200,
         temperature: 0.7,
-      }),
-    });
-
-    const data = await response.json();
-
-  
-    res.json({ description: data.choices[0].message.content });
-  } catch (error) {
-    console.error("Error generating lost item description:", error);
-    res.status(500).json({ message: "Failed to generate lost item description" });
-  }
-});
-
-
-
-router.post("/ai/description", async (req, res) => {
-  const { name,location } = req.body;
-
-  try {
-    if (!name) {
-      return res.status(400).json({ message: "Item name is required" });
-          if (!location) {
-      return res.status(400).json({ message: "Location is required" });
-    }
-  }
-    const response = await fetch("https://api.sambanova.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.SAMBANOVA_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "Meta-Llama-3.1-8B-Instruct",
- messages: [
-      {
-        role: "system",
-        content: "You are a helpful assistant that writes clear, short lost and found descriptions for items.",
       },
       {
-        role: "user",
-        content: `Write a short, professional "Found Item" description for: ${name}. The description should start with "Found Item:" and clearly describe the item, where it might have been found ${location}, and a note for the owner to contact.`,
-      },
-    ],
-    max_tokens: 200,
-    temperature: 0.7,
-  }),
-});
-
-    // Try to safely parse the response
-    const text = await response.text();
-    let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
-      console.error("Invalid JSON response from SambaNova:", text);
-      return res.status(500).json({ message: "Invalid response from SambaNova API", raw: text });
-    }
-
-    // Log full API response for debugging
-    console.log("SambaNova Response:", data);
-
-    if (!response.ok) {
-      return res.status(500).json({ message: "Failed to generate description", error: data });
-    }
+        headers: {
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+        },
+      }
+    );
 
     const description =
-      data?.choices?.[0]?.message?.content?.trim() ||
-      "No suggestions generated by the AI.";
+      response?.data?.choices?.[0]?.message?.content || "No description";
 
     res.json({ description });
-  } catch (error) {
-    console.error("SambaNova Error:", error);
-    res.status(500).json({ message: "Failed to generate description", error: error.message });
+  } catch (err) {
+    console.error("LOST ERROR:", err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
 
-// ✅ Cloudinary config (use env vars for deployment)
+// ================== FOUND DESCRIPTION ==================
+router.post("/ai/description", async (req, res) => {
+  try {
+    const { name, location } = req.body;
+
+    if (!name || !location) {
+      return res.status(400).json({ message: "Name and location required" });
+    }
+
+    const response = await axios.post(
+      "https://api.sambanova.ai/v1/chat/completions",
+      {
+        model: "Meta-Llama-3.1-8B-Instruct",
+        messages: [
+          {
+            role: "system",
+            content: "Write short found item descriptions",
+          },
+          {
+            role: "user",
+            content: `Found Item: ${name} at ${location}`,
+          },
+        ],
+        max_tokens: 200,
+        temperature: 0.7,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+        },
+      }
+    );
+
+    const description =
+      response?.data?.choices?.[0]?.message?.content || "No description";
+
+    res.json({ description });
+  } catch (err) {
+    console.error("FOUND ERROR:", err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ================== CLOUDINARY ==================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ✅ Setup multer for temporary file upload
+
+// ================== MULTER ==================
 const upload = multer({ dest: "uploads/" });
 
 
-
-// ✅ Create new item (Lost or Found)
+// ================== CREATE ITEM ==================
 router.post("/", verifyToken, upload.single("image"), async (req, res) => {
   try {
     const { name, location, description, type, date, phone } = req.body;
@@ -179,14 +172,13 @@ router.post("/", verifyToken, upload.single("image"), async (req, res) => {
 
     let imageUrl = null;
 
-    // ✅ Upload image to Cloudinary if provided
     if (req.file) {
       const result = await cloudinary.uploader.upload(req.file.path, {
         folder: "lost_found_items",
-        resource_type: "auto", // ✅ ensures mobile uploads (jpg, heic, etc.) work fine
+        resource_type: "auto",
       });
       imageUrl = result.secure_url;
-      fs.unlinkSync(req.file.path); // delete temp file
+      fs.unlinkSync(req.file.path);
     }
 
     const newItem = new Item({
@@ -203,12 +195,13 @@ router.post("/", verifyToken, upload.single("image"), async (req, res) => {
     const savedItem = await newItem.save();
     res.status(201).json(savedItem);
   } catch (err) {
-    console.error("Error creating item:", err);
+    console.error("CREATE ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 });
 
 
+// ================== GET USER ITEMS ==================
 router.get("/", verifyToken, async (req, res) => {
   try {
     const items = await Item.find({ user: req.user.id });
@@ -219,6 +212,7 @@ router.get("/", verifyToken, async (req, res) => {
 });
 
 
+// ================== GET ALL ITEMS ==================
 router.get("/all", async (req, res) => {
   try {
     const items = await Item.find().populate("user", "name");
@@ -229,6 +223,7 @@ router.get("/all", async (req, res) => {
 });
 
 
+// ================== GET SINGLE ITEM ==================
 router.get("/:id", async (req, res) => {
   try {
     const item = await Item.findById(req.params.id);
@@ -240,12 +235,16 @@ router.get("/:id", async (req, res) => {
 });
 
 
+// ================== DELETE ITEM ==================
 router.delete("/:id", verifyToken, async (req, res) => {
   try {
     const item = await Item.findById(req.params.id);
+
     if (!item) return res.status(404).json({ message: "Item not found" });
-    if (item.user.toString() !== req.user.id)
+
+    if (item.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Unauthorized" });
+    }
 
     await item.deleteOne();
     res.json({ message: "Item deleted successfully" });
@@ -255,12 +254,15 @@ router.delete("/:id", verifyToken, async (req, res) => {
 });
 
 
+// ================== CONTACT INFO ==================
 router.get("/contact/:id", verifyToken, async (req, res) => {
   try {
     const item = await Item.findById(req.params.id).populate("user", "name email phone");
+
     if (!item) return res.status(404).json({ message: "Item not found" });
 
     const phone = item.phone || item.user.phone;
+
     res.json({
       ownerName: item.user.name,
       phone,
@@ -270,22 +272,21 @@ router.get("/contact/:id", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Failed to fetch contact info" });
   }
 });
-router.put("/:id", verifyToken, async (req, res) => {
-  const { id } = req.params;
-  const { name, type, location, description, image } = req.body;
 
+
+// ================== UPDATE ITEM ==================
+router.put("/:id", verifyToken, async (req, res) => {
   try {
-    
-    const item = await Item.findById(id);
+    const { name, type, location, description, image } = req.body;
+
+    const item = await Item.findById(req.params.id);
 
     if (!item) return res.status(404).json({ message: "Post not found" });
 
-    // Optional: check if the logged-in user owns this post
     if (item.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
-    
     item.name = name || item.name;
     item.type = type || item.type;
     item.location = location || item.location;
@@ -293,12 +294,14 @@ router.put("/:id", verifyToken, async (req, res) => {
     item.image = image || item.image;
 
     const updatedItem = await item.save();
+
     res.json(updatedItem);
   } catch (err) {
-    console.error(err);
+    console.error("UPDATE ERROR:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 export default router;
 
