@@ -14,17 +14,17 @@ const router = express.Router();
 
 // ================== AI CHAT ==================
 router.post("/ai/chat", async (req, res) => {
+  const { message } = req.body;
+
+  if (!message) {
+    return res.status(400).json({ error: "Message required" });
+  }
+
   try {
-    const { message } = req.body;
-
-    if (!message) {
-      return res.status(400).json({ error: "Message required" });
-    }
-
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama3-8b-8192",
+        model: "llama-3.1-8b-instant", // ✅ UPDATED MODEL
         messages: [
           {
             role: "system",
@@ -38,6 +38,7 @@ router.post("/ai/chat", async (req, res) => {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           "Content-Type": "application/json",
         },
+        timeout: 5000,
       }
     );
 
@@ -47,23 +48,35 @@ router.post("/ai/chat", async (req, res) => {
     res.json({ reply });
 
   } catch (error) {
-    console.error("GROQ ERROR:", error.response?.data || error.message);
-    res.status(500).json({ error: error.message });
+    console.error("CHAT FALLBACK:", error.response?.data || error.message);
+
+    // ✅ FALLBACK RESPONSE (NO API FAILURE)
+    let reply = "I'm here to help with lost and found items.";
+
+    if (message.toLowerCase().includes("lost")) {
+      reply = "If you lost something, create a Lost post with details like location and description.";
+    } else if (message.toLowerCase().includes("found")) {
+      reply = "If you found something, create a Found post so the owner can contact you.";
+    }
+
+    res.json({ reply });
   }
 });
 
+
+// ================== LOST DESCRIPTION ==================
 router.post("/ai/lost-description", async (req, res) => {
+  const { name, location } = req.body;
+
+  if (!name || !location) {
+    return res.status(400).json({ message: "Name and location required" });
+  }
+
   try {
-    const { name, location } = req.body;
-
-    if (!name || !location) {
-      return res.status(400).json({ message: "Name and location required" });
-    }
-
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama3-8b-8192",
+        model: "llama-3.1-8b-instant", // ✅ UPDATED
         messages: [
           {
             role: "system",
@@ -71,7 +84,7 @@ router.post("/ai/lost-description", async (req, res) => {
           },
           {
             role: "user",
-            content: `Lost Item: ${name}, last seen at ${location}. Write a short professional description.`,
+            content: `Lost Item: ${name}, last seen at ${location}.`,
           },
         ],
       },
@@ -80,6 +93,7 @@ router.post("/ai/lost-description", async (req, res) => {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           "Content-Type": "application/json",
         },
+        timeout: 5000,
       }
     );
 
@@ -89,24 +103,29 @@ router.post("/ai/lost-description", async (req, res) => {
     res.json({ description });
 
   } catch (err) {
-    console.error("LOST ERROR:", err.response?.data || err.message);
-    res.status(500).json({ error: err.message });
+    console.error("LOST FALLBACK:", err.response?.data || err.message);
+
+    // ✅ FALLBACK
+    res.json({
+      description: `Lost Item: ${name}. Last seen at ${location}. Please contact if found.`,
+    });
   }
 });
 
 
+// ================== FOUND DESCRIPTION ==================
 router.post("/ai/description", async (req, res) => {
+  const { name, location } = req.body;
+
+  if (!name || !location) {
+    return res.status(400).json({ message: "Name and location required" });
+  }
+
   try {
-    const { name, location } = req.body;
-
-    if (!name || !location) {
-      return res.status(400).json({ message: "Name and location required" });
-    }
-
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama3-8b-8192",
+        model: "llama-3.1-8b-instant", // ✅ UPDATED
         messages: [
           {
             role: "system",
@@ -114,7 +133,7 @@ router.post("/ai/description", async (req, res) => {
           },
           {
             role: "user",
-            content: `Found Item: ${name} at ${location}. Write a short professional description.`,
+            content: `Found Item: ${name} at ${location}.`,
           },
         ],
       },
@@ -123,6 +142,7 @@ router.post("/ai/description", async (req, res) => {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           "Content-Type": "application/json",
         },
+        timeout: 5000,
       }
     );
 
@@ -132,11 +152,14 @@ router.post("/ai/description", async (req, res) => {
     res.json({ description });
 
   } catch (err) {
-    console.error("FOUND ERROR:", err.response?.data || err.message);
-    res.status(500).json({ error: err.message });
+    console.error("FOUND FALLBACK:", err.response?.data || err.message);
+
+    // ✅ FALLBACK
+    res.json({
+      description: `Found Item: ${name} at ${location}. Owner can contact to claim.`,
+    });
   }
 });
-
 // ================== CLOUDINARY ==================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
