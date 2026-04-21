@@ -1,4 +1,4 @@
-/*
+
 import express from "express";
 import multer from "multer";
 import fs from "fs";
@@ -301,7 +301,7 @@ router.put("/:id", verifyToken, async (req, res) => {
 });
 
 export default router;
-*/
+
 
 /*
 import express from "express";
@@ -494,10 +494,10 @@ router.put("/:id", verifyToken, async (req, res) => {
 
 export default router;
 
-*/
 
 
 
+/*
 import express from "express";
 import multer from "multer";
 import fs from "fs";
@@ -623,29 +623,30 @@ router.post("/", verifyToken, upload.single("image"), async (req, res) => {
       return res.status(400).json({ message: "Required fields missing" });
     }
 
-    // 🔥 FLASK VALIDATION
-    try {
-      const flaskRes = await axios.post(
-        "http://127.0.0.1:5001/check-post",
-        {
-          caption: description,
-          location: location,
-        }
-      );
-
-      console.log("Flask:", flaskRes.data);
-
-      if (flaskRes.data.status === "fake") {
-        return res.status(400).json({
-          message: "Fake post detected",
-        });
-      }
-    } catch (err) {
-      console.error("Flask error:", err.message);
-      return res.status(500).json({
-        message: "Flask server not running",
-      });
+   try {
+  const flaskRes = await axios.post(
+    "http://127.0.0.1:5001/check-post",
+    {
+      name: name,
+      description: description,
+      location: location,
     }
+  );
+
+  console.log("Flask response:", flaskRes.data); // 👈 HERE
+
+  if (flaskRes.data.status === "fake") {
+    return res.status(400).json({
+      message: "Fake post detected",
+    });
+  }
+
+} catch (err) {
+  console.error("Flask error:", err.message);
+  return res.status(500).json({
+    message: "Flask server not running",
+  });
+}
 
     let imageUrl = null;
 
@@ -707,3 +708,4 @@ router.put("/:id", verifyToken, async (req, res) => {
 });
 
 export default router;
+*/
