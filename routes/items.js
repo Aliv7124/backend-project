@@ -18,50 +18,40 @@ router.post("/ai/chat", async (req, res) => {
     const { message } = req.body;
 
     if (!message) {
-      return res.status(400).json({ error: "Message is required" });
-    }
-
-    if (!process.env.SAMBANOVA_API_KEY) {
-      return res.status(500).json({ error: "API key missing" });
+      return res.status(400).json({ error: "Message required" });
     }
 
     const response = await axios.post(
-      "https://api.sambanova.ai/v1/chat/completions",
+      "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "Meta-Llama-3.3-70B-Instruct",
+        model: "llama3-8b-8192",
         messages: [
           {
             role: "system",
-            content:
-              "You are an assistant for a Lost and Found web application. Give short helpful answers related to lost or found items.",
+            content: "You are a helpful Lost & Found assistant.",
           },
           { role: "user", content: message },
         ],
-        max_tokens: 200,
-        temperature: 0.7,
       },
       {
         headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
         },
       }
     );
 
     const reply =
-      response?.data?.choices?.[0]?.message?.content || "No response";
+      response?.data?.choices?.[0]?.message?.content || "No reply";
 
     res.json({ reply });
+
   } catch (error) {
-    console.error("CHAT ERROR:", error.response?.data || error.message);
-    res.status(500).json({
-      error: error.response?.data || error.message,
-    });
+    console.error("GROQ ERROR:", error.response?.data || error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-
-// ================== LOST DESCRIPTION ==================
 router.post("/ai/lost-description", async (req, res) => {
   try {
     const { name, location } = req.body;
@@ -71,25 +61,24 @@ router.post("/ai/lost-description", async (req, res) => {
     }
 
     const response = await axios.post(
-      "https://api.sambanova.ai/v1/chat/completions",
+      "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "Meta-Llama-3.1-8B-Instruct",
+        model: "llama3-8b-8192",
         messages: [
           {
             role: "system",
-            content: "Write short lost item descriptions",
+            content: "Write short lost item descriptions.",
           },
           {
             role: "user",
-            content: `Lost Item: ${name}, last seen at ${location}`,
+            content: `Lost Item: ${name}, last seen at ${location}. Write a short professional description.`,
           },
         ],
-        max_tokens: 200,
-        temperature: 0.7,
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
         },
       }
     );
@@ -98,6 +87,7 @@ router.post("/ai/lost-description", async (req, res) => {
       response?.data?.choices?.[0]?.message?.content || "No description";
 
     res.json({ description });
+
   } catch (err) {
     console.error("LOST ERROR:", err.response?.data || err.message);
     res.status(500).json({ error: err.message });
@@ -105,7 +95,6 @@ router.post("/ai/lost-description", async (req, res) => {
 });
 
 
-// ================== FOUND DESCRIPTION ==================
 router.post("/ai/description", async (req, res) => {
   try {
     const { name, location } = req.body;
@@ -115,25 +104,24 @@ router.post("/ai/description", async (req, res) => {
     }
 
     const response = await axios.post(
-      "https://api.sambanova.ai/v1/chat/completions",
+      "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "Meta-Llama-3.1-8B-Instruct",
+        model: "llama3-8b-8192",
         messages: [
           {
             role: "system",
-            content: "Write short found item descriptions",
+            content: "Write short found item descriptions.",
           },
           {
             role: "user",
-            content: `Found Item: ${name} at ${location}`,
+            content: `Found Item: ${name} at ${location}. Write a short professional description.`,
           },
         ],
-        max_tokens: 200,
-        temperature: 0.7,
       },
       {
         headers: {
-          Authorization: `Bearer ${process.env.SAMBANOVA_API_KEY}`,
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
         },
       }
     );
@@ -142,12 +130,12 @@ router.post("/ai/description", async (req, res) => {
       response?.data?.choices?.[0]?.message?.content || "No description";
 
     res.json({ description });
+
   } catch (err) {
     console.error("FOUND ERROR:", err.response?.data || err.message);
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ================== CLOUDINARY ==================
 cloudinary.config({
